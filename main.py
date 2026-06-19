@@ -5,6 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from supabase import create_client,Client
 from routes import users
+from routes import projects
+from routes import files
+from routes import chats
 
 load_dotenv()
 
@@ -26,6 +29,9 @@ def read_root():
     return {"message": "Welcome to the RAG API!"}
 
 app.include_router(users.router)
+app.include_router(projects.router)
+app.include_router(files.router)
+app.include_router(chats.router)
 
 
 
