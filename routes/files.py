@@ -5,6 +5,7 @@ from database import supabase,s3_client,BUCKET_NAME
 from auth import get_current_user_id
 from pydantic import BaseModel
 from typing import Optional
+from tasks import process_document
 
 
 
@@ -113,10 +114,14 @@ def confirm_file_upload(confirm_req:dict,project_id:str,clerk_id:str=Depends(get
         if not document_result.data:
             raise HTTPException(status_code=404, detail="Document not found or access denied")
         
+
+        document_id=document_result.data[0]["id"]
+        
         #update processing status to uploaded
         supabase.table("project_documents").update({"processing_status": "queued"}).eq("project_id", project_id).eq("clerk_id", clerk_id).eq("s3_key", s3_key).execute()
 
         #proccessing starts
+        task_id=process_document.delay(document_id=document_id)
 
 
         return {"message": "File upload confirmed successfully,processing started with celery",
@@ -164,6 +169,33 @@ def add_url(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail={"message": "Error occurred while adding URL", "error": str(e)})
+    
+
+
+
+@router.delete("/api/projects/{project_id}/files/{document_id}")
+def delete_file(project_id:str,document_id:str,clerk_id:str=Depends(get_current_user_id)):
+
+    try:
+        #verify document exists and belongs to user and project
+        document_result=supabase.table("project_documents").select("*").eq("project_id", project_id).eq("clerk_id", clerk_id).eq("id", document_id).execute()
+
+        if not document_result.data:
+            raise HTTPException(status_code=404, detail="Document not found or access denied")
+        
+        document=document_result.data[0]
+
+        #delete from s3 if it's a file
+        if document["file_type"] != "url":
+            s3_client.delete_object(Bucket=BUCKET_NAME,Key=document["s3_key"])
+        
+        #delete database record
+        supabase.table("project_documents").delete().eq("project_id", project_id).eq("clerk_id", clerk_id).eq("id", document_id).execute()
+
+        return {"message": "Document deleted successfully"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"message": "Error occurred while deleting document", "error": str(e)})
 
 
         
