@@ -121,11 +121,15 @@ def confirm_file_upload(confirm_req:dict,project_id:str,clerk_id:str=Depends(get
         supabase.table("project_documents").update({"processing_status": "queued"}).eq("project_id", project_id).eq("clerk_id", clerk_id).eq("s3_key", s3_key).execute()
 
         #proccessing starts
-        task_id=process_document.delay(document_id=document_id)
+        task=process_document.delay(document_id=document_id)
+
+        supabase.table("project_documents").update({"task_id": task.id}).eq("id", document_id).execute()
+
+
 
 
         return {"message": "File upload confirmed successfully,processing started with celery",
-                "data": document_result.data[0],"processing_status": "queued"}
+                "data": document_result.data[0]}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail={"message": "Error occurred while confirming file upload", "error": str(e)})
@@ -163,6 +167,12 @@ def add_url(
 
         if not document_result.data:
             raise HTTPException(status_code=500, detail="Failed to create document record")
+        
+        document_id=document_result.data[0]["id"]
+        
+        task=process_document.delay(document_id=document_id)
+        
+        supabase.table("project_documents").update({"task_id": task.id}).eq("id", document_id).execute()
         
         return {"message": "URL added successfully",
                 "data": document_result.data[0]}

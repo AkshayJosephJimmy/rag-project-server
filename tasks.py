@@ -16,13 +16,13 @@ def process_document(document_id:str):
 
 
     #update document status to processing
-    supabase.table("project_documents").update({"status": "processing"}).eq("id", document_id).execute()
+    supabase.table("project_documents").update({"processing_status": "processing"}).eq("id", document_id).execute()
 
     #simulate processing time
     time.sleep(5) #replace with actual processing logic
 
     #update document status to completed
-    supabase.table("project_documents").update({"status": "completed"}).eq("id", document_id).execute()
+    supabase.table("project_documents").update({"processing_status": "completed"}).eq("id", document_id).execute()
 
     return {"message": f"Document {document_id} processed successfully."}
 
