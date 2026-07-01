@@ -1,6 +1,10 @@
 from celery import Celery
 from database import supabase
 import time
+from database import s3_client,BUCKET_NAME
+from unstructured.partition.pdf import partition_pdf
+from unstructured.partition.docx import partition_docx
+from unstructured.partition.html import partition_html
 
 celery_app =Celery(
     "document_processor",#name of the celery app
@@ -12,19 +16,98 @@ celery_app =Celery(
 
 @celery_app.task
 def process_document(document_id:str):
-    """Celery task to process a document. This is a placeholder implementation."""
+
+  try:
+    
+    doc_result=supabase.table("project_documents").select("*").eq("id", document_id).execute()
+
+    document=doc_result.data[0]
 
 
-    #update document status to processing
-    supabase.table("project_documents").update({"processing_status": "processing"}).eq("id", document_id).execute()
 
-    #simulate processing time
-    time.sleep(5) #replace with actual processing logic
+    #1.download the document from s3 or url based on the source_type
 
-    #update document status to completed
-    supabase.table("project_documents").update({"processing_status": "completed"}).eq("id", document_id).execute()
+    elements=downlaod_and_partition(document_id,document)
 
-    return {"message": f"Document {document_id} processed successfully."}
+   
+
+
+    #2.chunk elements
+
+    #3.summarize chunk
+
+    #4.vectorization and storing
+
+
+    return{"status": "success", "message": f"Document {document_id} processed successfully."}
+
+
+  except Exception as e:
+    return{"status": "error", "message": f"Error processing document {document_id}: {str(e)}"} 
+
+
+   
+
+def downlaod_and_partition(document_id:str,document:dict):
+
+    s3_key=document["s3_key"]
+
+    source_type=document.get("source_type","file")
+
+    if source_type=="url":
+       pass
+    else:
+
+     filename=document["filename"]
+     file_type=filename.split(".")[-1]
+     file_size=document["file_size"]
+
+
+
+
+     temp_file_path=f"/tmp/temp_{document_id}.{file_type}"
+     s3_client.download_file(BUCKET_NAME,s3_key,temp_file_path)
+     
+
+     elements=partition_document(temp_file_path,file_type,source_type)
+
+     table=sum(1 for e in elements if e.category=="Table")
+     image=sum(1 for e in elements if e.category=="Image")
+     text_element=sum(1 for e in elements if e.category in ["NarrativeText","Title","Text"])
+     print(f"Document {document_id} partitioned into {len(elements)} elements: {table} tables, {image} images, and {text_element} text elements.")
+     return elements
+
+
+
+def partition_document(temp_path:str,file_type:str,source_type:str="file"):
+
+     """partition the document based on the file type and source type and return the elements"""
+
+
+     if source_type=="url":
+        pass
+     else:
+        if file_type=="pdf":
+            elements=partition_pdf( filename=temp_path,                  # mandatory
+                                    strategy="hi_res",                                     # mandatory to use ``hi_res`` strategy
+                                    infer_table_structure=True,                               # optional
+                                    extract_images_in_pdf=True,                            # mandatory to set as ``True``
+                                    extract_image_block_types=["Image"],          # optional
+                                    extract_image_block_to_payload=True,                  # optional
+                                    )
+        elif file_type=="docx":
+            elements=partition_docx(temp_path)
+        elif file_type=="html":
+            elements=partition_html(temp_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
+
+     return elements
+  
+   
+
+
+
 
 
 
