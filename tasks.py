@@ -12,6 +12,29 @@ celery_app =Celery(
     backend="redis://localhost:6379/0" #where results are stored
 )
 
+def update_status(document_id:str,status:str,details:dict=None):
+
+
+    """update the status of the document in the database"""
+
+    #update the status of the docuemnt
+
+    result=supabase.table("project_documents").select("processing_details").eq("id", document_id).execute()
+    current_details={}
+
+
+    if result.data and result.data[0]["processing_details"]:
+        current_details=result.data[0]["processing_details"]
+
+    if details:
+       current_details.update(details)
+
+      
+
+
+
+    
+    supabase.table("project_documents").update({"processing_status": status, "processing_details": current_details}).eq("id", document_id).execute()
 
 
 @celery_app.task
@@ -24,10 +47,16 @@ def process_document(document_id:str):
     document=doc_result.data[0]
 
 
+    update_status(document_id,"processing")
+
 
     #1.download the document from s3 or url based on the source_type
 
     elements=downlaod_and_partition(document_id,document)
+    table=sum(1 for e in elements if e.category=="Table")
+    image=sum(1 for e in elements if e.category=="Image")
+    text_element=sum(1 for e in elements if e.category in ["NarrativeText","Title","Text"])
+    print(f"Document {document_id} partitioned into {len(elements)} elements: {table} tables, {image} images, and {text_element} text elements.")
 
    
 
@@ -70,12 +99,18 @@ def downlaod_and_partition(document_id:str,document:dict):
      
 
      elements=partition_document(temp_file_path,file_type,source_type)
+     elements_found=analyze_elements(elements)
 
-     table=sum(1 for e in elements if e.category=="Table")
-     image=sum(1 for e in elements if e.category=="Image")
-     text_element=sum(1 for e in elements if e.category in ["NarrativeText","Title","Text"])
-     print(f"Document {document_id} partitioned into {len(elements)} elements: {table} tables, {image} images, and {text_element} text elements.")
-     return elements
+
+    update_status(document_id,"chunking",{"partitioning":{
+       "elements_summary":
+        elements_found
+
+    }}) 
+
+
+   
+    return elements
 
 
 
@@ -104,7 +139,36 @@ def partition_document(temp_path:str,file_type:str,source_type:str="file"):
 
      return elements
   
+
+def analyze_elements(elements:list):
    
+   table_count=0
+   image_count=0
+   text_count=0
+   title_count=0
+   other_count=0
+
+   for element in elements:
+      element_name=type(element).__name__
+      if element_name=="Table":
+         table_count+=1
+      elif element_name=="Image":
+         image_count+=1
+      elif element_name in ["NarrativeText","Text"]:
+         text_count+=1
+      elif element_name in ["Title","Header"]:
+         title_count+=1
+      else:
+         other_count+=1
+
+
+   return {
+        "tables": table_count,
+        "images": image_count,
+        "text": text_count,
+        "titles": title_count,
+        "other": other_count
+     } 
 
 
 
